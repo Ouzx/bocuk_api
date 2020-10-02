@@ -4,7 +4,7 @@ from flask_marshmallow import Marshmallow
 import encrypt as enc
 import aborty
 import os
-
+from datetime import datetime
 """
 Yapılacaklar:
     1-) Kuyruğa link eklerken bocuk listesinde olup olmadığını kontrol et.
@@ -110,9 +110,43 @@ def get_links():
     result = queries_schema.dump(query)
     return jsonify(result)
 
+# Get link by Token
+@app.route('/query/<token>', methods=['GET'])
+def get_link(token):
+    if not Bocuk.query.filter_by(token=token).first():
+        return aborty.abort(403, "You are not BOCUK!")
+    else:
+        query = Query.query.order_by(Query.id.desc()).first()
+        # append_to_takens(query)
+        # db.session.delete(query)
+
+        return {"test": str(query)}
+
 ####################################### TakenQuery Model #######################################
+class TakenQuery(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    link = db.Column(db.String)
+    level = db.Column(db.String)
+    bocuk = db.Column(db.String)
+    time = db.Column(db.DateTime, default=datetime.now())
 
+    def __init__(self, link, level, bocuk):
+        self.link = link
+        self.level = level
+        self.bocuk = bocuk
 
+# TakenQuery Schema
+class TakenQuerySchema(ma.Schema):
+    class Meta:
+        fileds = ('id', 'link', 'level', 'bocuk', 'time')
+
+# Init Schema
+taken_query_schema = TakenQuerySchema()
+taken_queries_schema = TakenQuerySchema(many=True)
+
+# Append to Takens
+def append_to_takens(query):
+    pass
 
 ####################################### CrawledQuery Model #######################################
 

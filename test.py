@@ -11,6 +11,7 @@ BASE = "http://127.0.0.1:5000/"
 #                                                 "level": "4",
 #                                                 "token": "2dcb56dcf9ccfce02857f07a3c326745"
 #                                                 })
-response = requests.get(BASE + "query") # get query
+# response = requests.get(BASE + "query") # get query
+response = requests.get(BASE + "query/2dcb56dcf9ccfce02857f07a3c326745") # get query by token
 
 print(response.json())
