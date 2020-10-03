@@ -110,13 +110,11 @@ def append_link():
         taken = TakenQuery.query.filter_by(bocuk=token).first()
         if taken:   
             db.session.delete(taken)
-            db.session.commit()
 
             append_to_crawled(taken)
             
             active_bocuk = ActiveBocuk.query.filter_by(bocuk=token).first()
             db.session.delete(active_bocuk)
-            db.session.commit()
 
             bocuk = Bocuk.query.filter_by(token=token).first()
             bocuk.counter += 1
@@ -266,11 +264,9 @@ def supervision():
             if bocuk:
                 if time_in_seconds - bocuk.time_by_second >= until:
                     db.session.delete(bocuk)
-                    db.session.commit()
                     
                     taken = TakenQuery.query.filter_by(bocuk=bocuk.bocuk).first()
                     db.session.delete(taken)
-                    db.session.commit()
 
                     query_link = Query(taken.link, taken.level)
                     db.session.add(query_link)
