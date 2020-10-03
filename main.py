@@ -15,7 +15,8 @@ Yapılacaklar:
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
 # Database
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'db.sqlite')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + \
+    os.path.join(basedir, 'db.sqlite')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Init db
 db = SQLAlchemy(app)
@@ -37,6 +38,7 @@ class BocukSchema(ma.Schema):
     class Meta:
         fields = ('id', 'token', 'counter')
 
+
 # Init Schema
 bocuk_schema = BocukSchema()
 bocuks_schema = BocukSchema(many=True)
@@ -44,7 +46,7 @@ bocuks_schema = BocukSchema(many=True)
 # Create a Bocuk
 @app.route('/bocuk', methods=['POST'])
 def add_product():
-    text =  request.json['text']
+    text = request.json['text']
     token = enc.encrypt(text)
     result = Bocuk.query.filter_by(token=token).first()
     if result:
@@ -61,14 +63,14 @@ def get_bocuks():
     all_bocuks = Bocuk.query.all()
     result = bocuks_schema.dump(all_bocuks)
     return jsonify(result)
-    
+
 # Get Bocuk by Token
 @app.route('/bocuk/<token>', methods=['GET'])
 def get_bocuk(token):
     bocuk = Bocuk.query.filter_by(token=token).first()
-    
+
     return bocuk_schema.jsonify(bocuk)
-    
+
 
 ####################################### Query Model #######################################
 class Query(db.Model):
@@ -85,6 +87,7 @@ class QuerySchema(ma.Schema):
     class Meta:
         fields = ('id', 'link', 'level')
 
+
 # Init Schema
 query_schema = QuerySchema()
 queries_schema = QuerySchema(many=True)
@@ -96,12 +99,30 @@ def append_link():
     if not Bocuk.query.filter_by(token=token).first():
         return aborty.abort(403, "You are not BOCUK!")
     else:
-        link = request.json['link']
-        level = request.json['level']
-        new_link = Query(link, level)
-        db.session.add(new_link)
-        db.session.commit()
-        return query_schema.jsonify(new_link)
+        taken = TakenQuery.query.filter_by(bocuk=token).first()
+        if taken:   
+            link = request.json['link']
+            level = request.json['level']
+            new_link = Query(link, level)
+            db.session.add(new_link)
+            db.session.commit()
+
+            db.session.delete(taken)
+            db.session.commit()
+
+            append_to_crawled(taken)
+            
+            active_bocuk = ActiveBocuk.query.filter_by(bocuk=token).first()
+            db.session.delete(active_bocuk)
+            db.session.commit()
+
+            bocuk = Bocuk.query.filter_by(token=token).first()
+            bocuk.counter += 1
+            db.commit()            
+            return query_schema.jsonify(new_link)
+        else:
+            pass
+            #abort
 
 # Get All Links
 @app.route('/query', methods=['GET'])
@@ -110,17 +131,19 @@ def get_links():
     result = queries_schema.dump(query)
     return jsonify(result)
 
-# Get link by Token
+# Get last link by Token
 @app.route('/query/<token>', methods=['GET'])
 def get_link(token):
-    if not Bocuk.query.filter_by(token=token).first():
+    bocuk = Bocuk.query.filter_by(token=token).first()
+    if not bocuk:
         return aborty.abort(403, "You are not BOCUK!")
     else:
         query = Query.query.order_by(Query.id.desc()).first()
-        # append_to_takens(query)
-        # db.session.delete(query)
-
-        return {"test": str(query)}
+        append_to_takens(query, token)
+        db.session.delete(query)
+        db.session.commit()
+        append_to_active(query.link, token)
+        return query_schema.jsonify(query)
 
 ####################################### TakenQuery Model #######################################
 class TakenQuery(db.Model):
@@ -135,24 +158,87 @@ class TakenQuery(db.Model):
         self.level = level
         self.bocuk = bocuk
 
-# TakenQuery Schema
-class TakenQuerySchema(ma.Schema):
+class TakenSchema(ma.Schema):
     class Meta:
-        fileds = ('id', 'link', 'level', 'bocuk', 'time')
+        fields = ('id', 'link', 'level', 'bocuk', 'time')
 
-# Init Schema
-taken_query_schema = TakenQuerySchema()
-taken_queries_schema = TakenQuerySchema(many=True)
+taken_queries_schema = TakenSchema(many=True)
+
+# Get All Links
+@app.route('/takens', methods=['GET'])
+def get_takens():
+    takens = TakenQuery.query.all()
+    result = taken_queries_schema.dump(takens)
+    return jsonify(result)
 
 # Append to Takens
-def append_to_takens(query):
-    pass
+def append_to_takens(query, token):
+    taken = TakenQuery(query.link, query.level, bocuk=token)
+    db.session.add(taken)
+    db.session.commit()
 
 ####################################### CrawledQuery Model #######################################
+class CrawledQuery(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    link = db.Column(db.String)
+    level = db.Column(db.String)
+    bocuk = db.Column(db.String)
 
+    def __init__(self, link, level, bocuk):
+        self.link = link
+        self.level = level
+        self.bocuk = bocuk
+
+class CrawledSchema(ma.Schema):
+    class Meta:
+        fields = ('id', 'link', 'level', 'bocuk')
+
+crawled_queries_schema = CrawledSchema(many=True)
+
+# Get All Links
+@app.route('/crawleds', methods=['GET'])
+def get_crawleds():
+    crawleds = CrawledQuery.query.all()
+    result = crawled_queries_schema.dump(crawleds)
+    return jsonify(result)
+
+def append_to_crawled(taken):
+    crawled = CrawledQuery(taken.link, taken.level, taken.bocuk)
+    db.session.add(crawled)
+    db.session.commit()
+
+####################################### CrawledQuery Model #######################################
+class ActiveBocuk(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    link = db.Column(db.String)
+    bocuk = db.Column(db.String)
+    until = db.Column(db.DateTime)
+
+    def __init__(self, link, bocuk, until):
+        self.link = link
+        self.bocuk = bocuk
+        self.until = until
+
+class ActiveSchema(ma.Schema):
+    class Meta:
+        fields = ('id', 'link', 'bocuk', 'until')
+        
+until_time = 480
+actives_schema = ActiveSchema(many=True)
+
+# Get All Links
+@app.route('/bocuk/actives', methods=['GET'])
+def get_actives():
+    actives = ActiveBocuk.query.all()
+    result = actives_schema.dump(actives)
+    return jsonify(result)
+
+def append_to_active(link, token):
+    active_bocuk = ActiveBocuk(link, token, until_time)
+    db.session.add(active_bocuk)
+    db.session.commit()
 
 
 # Run Server
 if __name__ == '__main__':
-  app.run(debug=True)
-
+    app.run(debug=True, host="188.166.163.91", port=5000)
