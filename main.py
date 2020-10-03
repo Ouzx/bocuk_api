@@ -4,7 +4,9 @@ from flask_marshmallow import Marshmallow
 import encrypt as enc
 import aborty
 import os
-from datetime import datetime
+from threading import Thread
+from time import sleep
+
 """
 Yapılacaklar:
     1-) Kuyruğa link eklerken bocuk listesinde olup olmadığını kontrol et.
@@ -22,6 +24,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 # Init
 ma = Marshmallow(app)
+
 
 ####################################### Bocuk Model #######################################
 class Bocuk(db.Model):
@@ -99,14 +102,13 @@ def append_link():
     if not Bocuk.query.filter_by(token=token).first():
         return aborty.abort(403, "You are not BOCUK!")
     else:
+        link = request.json['link']
+        level = request.json['level']
+        new_link = Query(link, level)
+        db.session.add(new_link)
+        db.session.commit()
         taken = TakenQuery.query.filter_by(bocuk=token).first()
         if taken:   
-            link = request.json['link']
-            level = request.json['level']
-            new_link = Query(link, level)
-            db.session.add(new_link)
-            db.session.commit()
-
             db.session.delete(taken)
             db.session.commit()
 
@@ -118,11 +120,10 @@ def append_link():
 
             bocuk = Bocuk.query.filter_by(token=token).first()
             bocuk.counter += 1
-            db.commit()            
-            return query_schema.jsonify(new_link)
-        else:
-            pass
-            #abort
+            db.session.commit()            
+        return query_schema.jsonify(new_link)
+       
+            
 
 # Get All Links
 @app.route('/query', methods=['GET'])
@@ -139,11 +140,14 @@ def get_link(token):
         return aborty.abort(403, "You are not BOCUK!")
     else:
         query = Query.query.order_by(Query.id.desc()).first()
-        append_to_takens(query, token)
-        db.session.delete(query)
-        db.session.commit()
-        append_to_active(query.link, token)
-        return query_schema.jsonify(query)
+        if query:
+            append_to_takens(query, token)
+            db.session.delete(query)
+            db.session.commit()
+            append_to_active(query.link, token)
+            return query_schema.jsonify(query)
+        else:
+            return aborty.abort(404, "There is no link left!")
 
 ####################################### TakenQuery Model #######################################
 class TakenQuery(db.Model):
@@ -151,17 +155,18 @@ class TakenQuery(db.Model):
     link = db.Column(db.String)
     level = db.Column(db.String)
     bocuk = db.Column(db.String)
-    time = db.Column(db.DateTime, default=datetime.now())
-
+    
     def __init__(self, link, level, bocuk):
         self.link = link
         self.level = level
         self.bocuk = bocuk
 
+# Taken Schema
 class TakenSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'link', 'level', 'bocuk', 'time')
+        fields = ('id', 'link', 'level', 'bocuk')
 
+# Schema Init
 taken_queries_schema = TakenSchema(many=True)
 
 # Get All Links
@@ -189,10 +194,12 @@ class CrawledQuery(db.Model):
         self.level = level
         self.bocuk = bocuk
 
+# Crawled Schema
 class CrawledSchema(ma.Schema):
     class Meta:
         fields = ('id', 'link', 'level', 'bocuk')
 
+# Schema Init
 crawled_queries_schema = CrawledSchema(many=True)
 
 # Get All Links
@@ -202,6 +209,7 @@ def get_crawleds():
     result = crawled_queries_schema.dump(crawleds)
     return jsonify(result)
 
+# Add data to crawled table
 def append_to_crawled(taken):
     crawled = CrawledQuery(taken.link, taken.level, taken.bocuk)
     db.session.add(crawled)
@@ -212,18 +220,19 @@ class ActiveBocuk(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     link = db.Column(db.String)
     bocuk = db.Column(db.String)
-    until = db.Column(db.DateTime)
+    time_by_second = db.Column(db.Integer)
 
-    def __init__(self, link, bocuk, until):
+    def __init__(self, link, bocuk):
         self.link = link
         self.bocuk = bocuk
-        self.until = until
+        self.time_by_second = time_in_seconds
 
+# Active Schema
 class ActiveSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'link', 'bocuk', 'until')
-        
-until_time = 480
+        fields = ('id', 'link', 'bocuk', 'time_by_second')
+
+# Schema Init
 actives_schema = ActiveSchema(many=True)
 
 # Get All Links
@@ -233,12 +242,54 @@ def get_actives():
     result = actives_schema.dump(actives)
     return jsonify(result)
 
+# Add bocuk to active table
 def append_to_active(link, token):
-    active_bocuk = ActiveBocuk(link, token, until_time)
+    active_bocuk = ActiveBocuk(link, token)
     db.session.add(active_bocuk)
     db.session.commit()
+
+####################################### Time #######################################
+until = 15
+# Second by second counter
+time_in_seconds = 0
+def timer():
+    global time_in_seconds
+    while True:
+        sleep(1)
+        time_in_seconds += 1
+
+def supervision():
+    global time_in_seconds
+    global until
+    while True:
+        for bocuk in ActiveBocuk.query.all():
+            if bocuk:
+                if time_in_seconds - bocuk.time_by_second >= until:
+                    db.session.delete(bocuk)
+                    db.session.commit()
+                    
+                    taken = TakenQuery.query.filter_by(bocuk=bocuk.bocuk).first()
+                    db.session.delete(taken)
+                    db.session.commit()
+
+                    query_link = Query(taken.link, taken.level)
+                    db.session.add(query_link)
+                    db.session.commit()
+        sleep(1)
+
+# Get current API time in seconds
+@app.route('/time', methods=["GET"])
+def get_time():
+    return {"time_in_seconds": str(time_in_seconds)}
+
+
 
 
 # Run Server
 if __name__ == '__main__':
+    t1 = Thread(target=timer)
+    t1.start() # Start timer thread
+
+    t2 = Thread(target=supervision)
+    t2.start()
     app.run(debug=True, host="188.166.163.91", port=5000)
