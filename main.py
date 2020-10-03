@@ -6,12 +6,7 @@ import aborty
 import os
 from threading import Thread
 from time import sleep
-
-"""
-Yapılacaklar:
-    1-) Kuyruğa link eklerken bocuk listesinde olup olmadığını kontrol et.
-"""
-
+import json
 
 # Init app
 app = Flask(__name__)
@@ -102,26 +97,86 @@ def append_link():
     if not Bocuk.query.filter_by(token=token).first():
         return aborty.abort(403, "You are not BOCUK!")
     else:
-        link = request.json['link']
-        level = request.json['level']
-        new_link = Query(link, level)
-        db.session.add(new_link)
-        db.session.commit()
         taken = TakenQuery.query.filter_by(bocuk=token).first()
-        if taken:   
+        if taken:
             db.session.delete(taken)
 
             append_to_crawled(taken)
-            
+
             active_bocuk = ActiveBocuk.query.filter_by(bocuk=token).first()
             db.session.delete(active_bocuk)
 
             bocuk = Bocuk.query.filter_by(token=token).first()
             bocuk.counter += 1
-            db.session.commit()            
-        return query_schema.jsonify(new_link)
-       
-            
+            db.session.commit()
+
+        level = request.json['level']
+        if level == 'company':
+            companies_path = os.path.join(basedir, "Companies")
+            city_path = os.path.join(companies_path, request.json['city'])
+            if not os.path.exists(city_path):
+                os.mkdir(city_path)
+            province_path = os.path.join(city_path, request.json['province'])
+            if not os.path.exists(province_path):
+                os.mkdir(province_path)
+            company_path = os.path.join(province_path, "companies.json")
+            if not os.path.isfile(company_path):
+                with open( company_path, "w", encoding='utf8') as file:
+                    company = {
+                        request.json['hash']: {
+                            "company_name": request.json['company_name'],
+                            "slogan": request.json['slogan'],
+                            "description": request.json['description'],
+                            "phone": request.json['phone'],
+                            "mobile_phone": request.json['mobile_phone'],
+                            "address": request.json['address'],
+                            "category": request.json['category'],
+                            "cover_photo": request.json['cover_photo'],
+                            "logo": request.json['logo'],
+                            "gallery": request.json['gallery'],
+                            "e_mail_1": request.json['e_mail_1'],
+                            "e_mail_2": request.json['e_mail_2'],
+                            "web_site_1": request.json['web_site_1'],
+                            "web_site_2": request.json['web_site_2'],
+                            "tag_1": request.json['tag_1'],
+                            "tag_2": request.json['tag_2']
+                        }
+                    }
+                    json.dump(company, file, ensure_ascii=False)
+            else:
+                with open( company_path, "r+", encoding='utf8') as file:
+                    data = json.load(file)
+                    company = {
+                        request.json['hash']: {
+                            "company_name": request.json['company_name'],
+                            "slogan": request.json['slogan'],
+                            "description": request.json['description'],
+                            "phone": request.json['phone'],
+                            "mobile_phone": request.json['mobile_phone'],
+                            "address": request.json['address'],
+                            "category": request.json['category'],
+                            "cover_photo": request.json['cover_photo'],
+                            "logo": request.json['logo'],
+                            "gallery": request.json['gallery'],
+                            "e_mail_1": request.json['e_mail_1'],
+                            "e_mail_2": request.json['e_mail_2'],
+                            "web_site_1": request.json['web_site_1'],
+                            "web_site_2": request.json['web_site_2'],
+                            "tag_1": request.json['tag_1'],
+                            "tag_2": request.json['tag_2']
+                        }
+                    }
+                    data.update(company)
+                    file.seek(0)
+                    json.dump(data, file, ensure_ascii=False)
+            return {"message": "Company detected, and saved."}
+        else:
+            link = request.json['link']
+            new_link = Query(link, level)
+            db.session.add(new_link)
+            db.session.commit()
+            return query_schema.jsonify(new_link)
+
 
 # Get All Links
 @app.route('/query', methods=['GET'])
@@ -153,7 +208,7 @@ class TakenQuery(db.Model):
     link = db.Column(db.String)
     level = db.Column(db.String)
     bocuk = db.Column(db.String)
-    
+
     def __init__(self, link, level, bocuk):
         self.link = link
         self.level = level
@@ -163,6 +218,7 @@ class TakenQuery(db.Model):
 class TakenSchema(ma.Schema):
     class Meta:
         fields = ('id', 'link', 'level', 'bocuk')
+
 
 # Schema Init
 taken_queries_schema = TakenSchema(many=True)
@@ -197,6 +253,7 @@ class CrawledSchema(ma.Schema):
     class Meta:
         fields = ('id', 'link', 'level', 'bocuk')
 
+
 # Schema Init
 crawled_queries_schema = CrawledSchema(many=True)
 
@@ -230,6 +287,7 @@ class ActiveSchema(ma.Schema):
     class Meta:
         fields = ('id', 'link', 'bocuk', 'time_by_second')
 
+
 # Schema Init
 actives_schema = ActiveSchema(many=True)
 
@@ -246,15 +304,19 @@ def append_to_active(link, token):
     db.session.add(active_bocuk)
     db.session.commit()
 
+
 ####################################### Time #######################################
 until = 480
 # Second by second counter
 time_in_seconds = 0
+
+
 def timer():
     global time_in_seconds
     while True:
         sleep(1)
         time_in_seconds += 1
+
 
 def supervision():
     global time_in_seconds
@@ -264,8 +326,9 @@ def supervision():
             if bocuk:
                 if time_in_seconds - bocuk.time_by_second >= until:
                     db.session.delete(bocuk)
-                    
-                    taken = TakenQuery.query.filter_by(bocuk=bocuk.bocuk).first()
+
+                    taken = TakenQuery.query.filter_by(
+                        bocuk=bocuk.bocuk).first()
                     db.session.delete(taken)
 
                     query_link = Query(taken.link, taken.level)
@@ -287,69 +350,69 @@ def brief():
         bocuk = 0
     else:
         bocuk = bocuk.id
-        
+
     active_bocuk = ActiveBocuk.query.order_by(ActiveBocuk.id.desc()).first()
     if not active_bocuk:
         active_bocuk = 0
     else:
         active_bocuk = active_bocuk.id
-         
+
     query = Query.query.order_by(Query.id.desc()).first()
     if not query:
         query = 0
     else:
         query = query.id
-     
+
     takens = TakenQuery.query.order_by(TakenQuery.id.desc()).first()
     if not takens:
         takens = 0
     else:
         takens = takens.id
-        
+
     crawleds = CrawledQuery.query.order_by(CrawledQuery.id.desc()).first()
     if not crawleds:
         crawleds = 0
     else:
         crawleds = crawleds.id
-    
+
     percentage = 0
     if crawleds > 0 and query > 0:
         percentage = (crawleds * 100) / (crawleds + query)
-     
+
     return {
-        "brief":{
+        "brief": {
             "bocuks": bocuk,
             "active_bocuks": active_bocuk,
             "query": query,
             "takens": takens,
             "crawleds": crawleds,
             "time": str(time_in_seconds)
-            },
+        },
         "Completed": "%" + str(percentage)
-        }
+    }
 
 ####################################### Brief #######################################
 @app.route('/report', methods=['POST'])
 def report():
     token = request.json['token']
-    
+
     bocuk = ActiveBocuk.query.filter_by(bocuk=token).first()
     db.session.delete(bocuk)
 
     taken = TakenQuery.query.filter_by(bocuk=token).first()
     db.session.delete(taken)
-    
-    
+
     query_link = Query(taken.link, taken.level)
     db.session.add(query_link)
 
     db.session.commit()
-    return {"message": "Report on the "+ str(token) +" succesful"}
+    return {"message": "Report on the " + str(token) + " succesful"}
+
 
 # Run Server
 if __name__ == '__main__':
     t1 = Thread(target=timer)
-    t1.start() # Start timer thread
+    t1.start()  # Start timer thread
 
     t2 = Thread(target=supervision)
     t2.start()
