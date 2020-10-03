@@ -328,6 +328,23 @@ def brief():
         "Completed": "%" + str(percentage)
         }
 
+####################################### Brief #######################################
+@app.route('/report', methods=['POST'])
+def report():
+    token = request.json['token']
+    
+    bocuk = ActiveBocuk.query.filter_by(bocuk=token).first()
+    db.session.delete(bocuk)
+
+    taken = TakenQuery.query.filter_by(bocuk=token).first()
+    db.session.delete(taken)
+    
+    
+    query_link = Query(taken.link, taken.level)
+    db.session.add(query_link)
+
+    db.session.commit()
+    return {"message": "Report on the "+ str(token) +" succesful"}
 
 # Run Server
 if __name__ == '__main__':
