@@ -249,7 +249,7 @@ def append_to_active(link, token):
     db.session.commit()
 
 ####################################### Time #######################################
-until = 15
+until = 480
 # Second by second counter
 time_in_seconds = 0
 def timer():
@@ -282,7 +282,55 @@ def supervision():
 def get_time():
     return {"time_in_seconds": str(time_in_seconds)}
 
-
+####################################### Brief #######################################
+@app.route('/brief', methods=["GET"])
+def brief():
+    global time_in_seconds
+    bocuk = Bocuk.query.order_by(Bocuk.id.desc()).first()
+    if not bocuk:
+        bocuk = 0
+    else:
+        bocuk = bocuk.id
+        
+    active_bocuk = ActiveBocuk.query.order_by(ActiveBocuk.id.desc()).first()
+    if not active_bocuk:
+        active_bocuk = 0
+    else:
+        active_bocuk = active_bocuk.id
+         
+    query = Query.query.order_by(Query.id.desc()).first()
+    if not query:
+        query = 0
+    else:
+        query = query.id
+     
+    takens = TakenQuery.query.order_by(TakenQuery.id.desc()).first()
+    if not takens:
+        takens = 0
+    else:
+        takens = takens.id
+        
+    crawleds = CrawledQuery.query.order_by(CrawledQuery.id.desc()).first()
+    if not crawleds:
+        crawleds = 0
+    else:
+        crawleds = crawleds.id
+    
+    percentage = 0
+    if crawleds > 0 and query > 0:
+        percentage = (crawleds * 100) / (crawleds + query)
+     
+    return {
+        "brief":{
+            "bocuks": bocuk,
+            "active_bocuks": active_bocuk,
+            "query": query,
+            "takens": takens,
+            "crawleds": crawleds,
+            "time": str(time_in_seconds)
+            },
+        "Completed": "%" + str(percentage)
+        }
 
 
 # Run Server
